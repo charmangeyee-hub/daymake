@@ -1,0 +1,17 @@
+# Local push keys / runtime secrets (from the optional local dev server)
+vapid_private.pem
+vapid.json
+
+# Local dev-server runtime data (accounts, sessions, user data, subscriptions)
+users.json
+sessions.json
+user_data.json
+push_store.json
+
+# Python
+__pycache__/
+*.pyc
+
+# Tooling / OS
+.claude/
+.DS_Store
