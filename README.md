@@ -25,7 +25,18 @@ python3 server.py     # serves the app at http://localhost:4599
 
 ## Deploy
 
-Static hosting (e.g. Netlify — `netlify.toml` included). Set the Supabase **Auth → Site URL** to your deployed URL.
+Any static host works (the app talks to Supabase directly — no server or build step). A `netlify.toml` is included.
+
+### Deploy to Netlify (auto‑deploy from GitHub)
+
+1. Push this repo to GitHub (e.g. with **GitHub Desktop**).
+2. Go to **[app.netlify.com](https://app.netlify.com)** and log in — choose **Log in with GitHub**.
+3. Click **Add new site → Import an existing project → GitHub**, authorise Netlify, and pick the **daymake** repo.
+4. Leave the build settings as detected — **Build command: _(empty)_**, **Publish directory: `.`** (Netlify reads `netlify.toml`). Click **Deploy**.
+5. Netlify gives you a URL like `https://daymake-xxxx.netlify.app`.
+6. In **Supabase → Authentication → URL Configuration**, set **Site URL** to that Netlify URL (and add it under **Redirect URLs**).
+
+No environment variables are needed — the publishable Supabase key lives in `app.js`. After this, **every `git push` auto‑deploys** the site.
 
 ## Supabase setup
 
