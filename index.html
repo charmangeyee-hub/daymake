@@ -311,12 +311,26 @@
         <input class="field-input" id="event-date" type="date" />
       </div>
       <div class="field-col">
-        <p class="field-label">Time <span class="field-hint">optional</span></p>
-        <input class="field-input" id="event-time" type="time" />
+        <p class="field-label">End date <span class="field-hint">optional</span></p>
+        <input class="field-input" id="event-end-date" type="date" />
       </div>
     </div>
-    <p class="field-label">End date <span class="field-hint">optional — for multi-day</span></p>
-    <input class="field-input" id="event-end-date" type="date" />
+    <p class="field-label">Time <span class="field-hint">optional</span></p>
+    <input class="field-input" id="event-time" type="time" />
+    <p class="field-label">Repeat</p>
+    <select class="field-input" id="event-repeat">
+      <option value="none">Never</option>
+      <option value="daily">Every day</option>
+      <option value="weekly">Every week</option>
+      <option value="biweekly">Every 2 weeks</option>
+      <option value="monthly">Every month</option>
+      <option value="yearly">Every year</option>
+    </select>
+    <p class="field-label">Show as</p>
+    <div class="seg2" id="event-showas">
+      <button type="button" class="seg2-btn is-active" data-showas="busy">Busy</button>
+      <button type="button" class="seg2-btn" data-showas="free">Free</button>
+    </div>
     <p class="field-label">Location <span class="field-hint">optional</span></p>
     <div class="loc-field">
       <input class="field-input" id="event-location" type="text" placeholder="e.g. City Dental, Jalan Ampang" maxlength="120" />

@@ -1086,8 +1086,16 @@
   const $eventEndDate = document.getElementById('event-end-date');
   const $eventLocation = document.getElementById('event-location');
   const $eventMapLink = document.getElementById('event-map-link');
+  const $eventRepeat = document.getElementById('event-repeat');
+  const $eventShowAs = document.getElementById('event-showas');
   const $eventSave = document.getElementById('event-save');
   const $eventDelete = document.getElementById('event-delete');
+
+  $eventShowAs.addEventListener('click', e => {
+    const b = e.target.closest('.seg2-btn'); if (!b) return;
+    [...$eventShowAs.children].forEach(x => x.classList.toggle('is-active', x === b));
+  });
+  const REPEAT_LABEL = { daily: 'Every day', weekly: 'Every week', biweekly: 'Every 2 weeks', monthly: 'Every month', yearly: 'Every year' };
 
   function mapsUrl(q) { return 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(q); }
   function refreshEventMapLink() {
@@ -1121,8 +1129,22 @@
     return min + ' min before';
   }
 
+  // Does an event occur on `date`? Handles multi-day ranges and repeat rules.
+  function occursOn(e, date) {
+    const rep = e.repeat || 'none';
+    if (rep === 'none') return date >= e.date && date <= (e.endDate || e.date);
+    if (date < e.date) return false;
+    const d0 = parseYmd(e.date), d = parseYmd(date);
+    const days = Math.round((d - d0) / 86400000);
+    if (rep === 'daily') return true;
+    if (rep === 'weekly') return days % 7 === 0;
+    if (rep === 'biweekly') return days % 14 === 0;
+    if (rep === 'monthly') return d.getDate() === d0.getDate();
+    if (rep === 'yearly') return d.getDate() === d0.getDate() && d.getMonth() === d0.getMonth();
+    return false;
+  }
   function eventsOn(date) {
-    return events.filter(e => date >= e.date && date <= (e.endDate || e.date))
+    return events.filter(e => occursOn(e, date))
       .sort((a, b) => (a.time || '99:99').localeCompare(b.time || '99:99'));
   }
 
@@ -1201,22 +1223,27 @@
     const daysIn = new Date(year, month + 1, 0).getDate();
     const monthEnd = ymd(new Date(year, month, daysIn));
 
-    let list = upcoming
-      ? events.filter(e => (e.endDate || e.date) >= today)                         // from today onward
-      : events.filter(e => e.date <= monthEnd && (e.endDate || e.date) >= monthStart);
-    if (agendaFilter === 'reminder') list = list.filter(e => e.reminderMin != null);
-    else if (agendaFilter === 'location') list = list.filter(e => e.location);
+    const floor = upcoming ? today : monthStart;
+    const end = upcoming ? addDays(today, 120) : monthEnd;   // rolling ~4-month window for Upcoming
 
-    // group by the day the event appears in this view (clamp ongoing/earlier starts)
+    let pool = events.slice();
+    if (agendaFilter === 'reminder') pool = pool.filter(e => e.reminderMin != null);
+    else if (agendaFilter === 'location') pool = pool.filter(e => e.location);
+
+    // does an event show on this day in the agenda? (recurring → every occurrence; else → its in-window start day)
+    const showsOn = (e, day) => {
+      if (e.repeat && e.repeat !== 'none') return occursOn(e, day);
+      const start = e.date < floor ? floor : e.date;
+      return day === start && e.date <= end && (e.endDate || e.date) >= floor;
+    };
+
     const byDay = {};
-    list.forEach(e => {
-      const floor = upcoming ? today : monthStart;
-      const key = e.date < floor ? floor : e.date;
-      (byDay[key] = byDay[key] || []).push(e);
-    });
+    let n = 0;
+    for (let day = floor; day <= end; day = addDays(day, 1)) {
+      const hits = pool.filter(e => showsOn(e, day));
+      if (hits.length) { byDay[day] = hits; n += hits.length; }
+    }
     const days = Object.keys(byDay).sort();
-
-    const n = list.length;
     const monthName = new Date(year, month, 1).toLocaleDateString(undefined, { month: 'long' });
     $agendaSummary.textContent = n
       ? (upcoming ? `${n} upcoming event${n > 1 ? 's' : ''}` : `${n} event${n > 1 ? 's' : ''} in ${monthName}`)
@@ -1259,7 +1286,8 @@
 
     const color = document.createElement('span');
     color.className = 'ev-color';
-    color.style.background = 'var(--accent)';
+    if (ev.showAs === 'free') { color.style.background = 'transparent'; color.style.boxShadow = 'inset 0 0 0 2px var(--border)'; }
+    else color.style.background = 'var(--accent)';
 
     const main = document.createElement('div');
     main.className = 'ev-main';
@@ -1283,6 +1311,10 @@
     if (ev.location) {
       html += ` <span class="ev-loc"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 6-9 12-9 12s-9-6-9-12a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg><a href="${mapsUrl(ev.location)}" target="_blank" rel="noopener">${escapeHtml(ev.location)}</a></span>`;
     }
+    if (ev.repeat && ev.repeat !== 'none') {
+      html += ` <span class="ev-rep"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 2l4 4-4 4"/><path d="M3 11V9a4 4 0 014-4h14"/><path d="M7 22l-4-4 4-4"/><path d="M21 13v2a4 4 0 01-4 4H3"/></svg>${REPEAT_LABEL[ev.repeat] || ''}</span>`;
+    }
+    if (ev.showAs === 'free') html += ` <span class="ev-free">Free</span>`;
     meta.innerHTML = html;
     main.append(title, meta);
 
@@ -1305,6 +1337,9 @@
     $eventNote.value = ev ? (ev.note || '') : '';
     $eventEndDate.value = ev ? (ev.endDate || '') : '';
     $eventLocation.value = ev ? (ev.location || '') : '';
+    $eventRepeat.value = (ev && ev.repeat) ? ev.repeat : 'none';
+    const showAs = (ev && ev.showAs) ? ev.showAs : 'busy';
+    [...$eventShowAs.children].forEach(b => b.classList.toggle('is-active', b.dataset.showas === showAs));
     refreshEventMapLink();
     $eventDelete.hidden = !ev;
 
@@ -1336,7 +1371,9 @@
     const reminderMin = rv === 'none' ? null : parseInt(rv, 10);
     let endDate = $eventEndDate.value || '';
     if (endDate && endDate < date) endDate = '';   // ignore invalid ranges
-    const data = { title, date, time, reminderMin, note: $eventNote.value.trim(), endDate, location: $eventLocation.value.trim() };
+    const repeat = $eventRepeat.value || 'none';
+    const showAs = ($eventShowAs.querySelector('.is-active') || {}).dataset?.showas || 'busy';
+    const data = { title, date, time, reminderMin, note: $eventNote.value.trim(), endDate, location: $eventLocation.value.trim(), repeat, showAs };
 
     if (editEventId) {
       const ev = events.find(e => e.id === editEventId);
