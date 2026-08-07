@@ -787,6 +787,8 @@ select.field-input { -webkit-appearance: none; appearance: none; background-imag
     grid-template-columns: 1.7fr 1fr;
     grid-template-areas: "bar bar" "modes modes" "main side";
   }
+  /* the id+grid rule above must not defeat the hidden-screen rule */
+  #screen-calendar[hidden] { display: none; }
   #screen-calendar .cal-monthbar { grid-area: bar; }
   #screen-calendar .cal-modes { grid-area: modes; }
   #screen-calendar .cal-card { grid-area: main; margin: 12px 0 0; align-self: start; }
