@@ -676,14 +676,8 @@
     const name = document.createElement('div');
     name.className = 'habit-name';
     name.textContent = h.name;
-    name.contentEditable = 'true';
-    name.spellcheck = false;
-    name.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); name.blur(); } });
-    name.addEventListener('blur', () => {
-      const v = name.textContent.trim();
-      if (!v) { name.textContent = h.name; return; }
-      if (v !== h.name) { h.name = v; saveHabits(); }
-    });
+    name.setAttribute('role', 'button');
+    name.addEventListener('click', () => openHabitSheet(h.id));   // tap name to edit everything
     info.append(name);
 
     if (h.reason) {
@@ -836,14 +830,24 @@
     [...$habitTarget.children].forEach(b => b.classList.toggle('is-active', +b.dataset.n === habitDraft.target));
   }
 
-  function openHabitSheet() {
-    habitDraft = { emoji: HABIT_EMOJIS[0], reminder: '', target: 7 };
-    $habitName.value = '';
-    $habitReason.value = '';
-    $habitReminder.value = '';
+  let editHabitId = null;
+  const $habitSheetTitle = document.getElementById('habit-sheet-title');
+  const $habitDelete = document.getElementById('habit-delete');
+
+  function openHabitSheet(id) {
+    editHabitId = (typeof id === 'string') ? id : null;
+    const h = editHabitId ? habits.find(x => x.id === editHabitId) : null;
+    habitDraft = h
+      ? { emoji: h.emoji || HABIT_EMOJIS[0], reminder: h.reminder || '', target: h.target || 7 }
+      : { emoji: HABIT_EMOJIS[0], reminder: '', target: 7 };
+    $habitSheetTitle.textContent = h ? 'Edit habit' : 'New habit';
+    $habitSave.textContent = h ? 'Save changes' : 'Add habit';
+    $habitDelete.hidden = !h;
+    $habitName.value = h ? h.name : '';
+    $habitReason.value = h ? (h.reason || '') : '';
+    $habitReminder.value = h ? (h.reminder || '') : '';
     syncHabitPickers();
-    // fallback: mark first option active
-    $habitEmoji.firstChild && $habitEmoji.firstChild.classList.add('is-active');
+    if (!h) $habitEmoji.firstChild && $habitEmoji.firstChild.classList.add('is-active');
     $habitOverlay.hidden = false;
     $habitSheet.setAttribute('aria-hidden', 'false');
     requestAnimationFrame(() => { $habitOverlay.classList.add('show'); $habitSheet.classList.add('show'); });
@@ -854,18 +858,21 @@
     $habitSheet.setAttribute('aria-hidden', 'true');
     setTimeout(() => { $habitOverlay.hidden = true; }, 280);
   }
-  $newHabitBtn.addEventListener('click', openHabitSheet);
+  $newHabitBtn.addEventListener('click', () => openHabitSheet(null));
   $habitOverlay.addEventListener('click', closeHabitSheet);
   $habitReminderClear.addEventListener('click', () => { $habitReminder.value = ''; });
+  $habitDelete.addEventListener('click', () => { if (editHabitId) { removeHabit(editHabitId); closeHabitSheet(); } });
   $habitSave.addEventListener('click', async () => {
     const name = $habitName.value.trim();
     if (!name) { $habitName.focus(); return; }
     const reminder = $habitReminder.value || '';
-    habits.push({
-      id: uid(), name, reason: $habitReason.value.trim(),
-      emoji: habitDraft.emoji, target: habitDraft.target || 7,
-      reminder, lastNotified: '', created: Date.now(), checks: {}
-    });
+    const fields = { name, reason: $habitReason.value.trim(), emoji: habitDraft.emoji, target: habitDraft.target || 7, reminder };
+    if (editHabitId) {
+      const h = habits.find(x => x.id === editHabitId);
+      if (h) Object.assign(h, fields);
+    } else {
+      habits.push({ id: uid(), ...fields, lastNotified: '', created: Date.now(), checks: {} });
+    }
     saveHabits();
     renderHabits();
     closeHabitSheet();
@@ -981,10 +988,16 @@
       }
     });
     events.forEach(ev => {
-      const at = eventReminderAt(ev);
-      if (at && at.date === t && at.time === hhmm && ev.lastNotified !== t) {
-        ev.lastNotified = t; saveEvents();
-        fireNotification('Upcoming event', '📅 ' + ev.title + (ev.time ? ' at ' + formatTime(ev.time) : ''));
+      if (ev.reminderMin == null) return;
+      // check the next few occurrences (covers recurring events too)
+      for (const occ of upcomingOccurrences(ev, 3)) {
+        const at = occurrenceReminder(ev, occ);
+        const key = 'ev-' + occ;   // per-occurrence dedupe
+        if (at.date === t && at.time === hhmm && ev.lastNotified !== key) {
+          ev.lastNotified = key; saveEvents();
+          fireNotification('Upcoming event', '📅 ' + ev.title + (ev.time ? ' at ' + formatTime(ev.time) : ''));
+          break;
+        }
       }
     });
   }
@@ -1109,17 +1122,32 @@
   }
   function saveEvents() { try { localStorage.setItem(EVENTS_KEY, JSON.stringify(events)); } catch {} cloudSave(); }
 
-  // reminder timing: returns {date,time} the reminder should fire, or null
-  function eventReminderAt(ev) {
+  // Reminder {date,time} for a specific occurrence date (subtracts the "minutes before").
+  function occurrenceReminder(ev, occDate) {
     if (ev.reminderMin == null) return null;
     const base = ev.time || '09:00';
     let [h, m] = base.split(':').map(Number);
     let total = h * 60 + m - (ev.reminderMin | 0);
-    let date = ev.date;
+    let date = occDate;
     while (total < 0) { total += 1440; date = addDays(date, -1); }
     const hh = String(Math.floor(total / 60) % 24).padStart(2, '0');
     const mm = String(total % 60).padStart(2, '0');
     return { date, time: hh + ':' + mm };
+  }
+  // The next `count` dates the event occurs, from today onward (handles repeat rules).
+  function upcomingOccurrences(ev, count) {
+    const today = todayStr();
+    if (!ev.repeat || ev.repeat === 'none') {
+      const last = ev.endDate || ev.date;
+      return last >= today ? [ev.date] : [];   // still relevant if not fully past
+    }
+    const out = [];
+    let day = ev.date < today ? today : ev.date;
+    for (let i = 0; i < 800 && out.length < count; i++) {
+      if (occursOn(ev, day)) out.push(day);
+      day = addDays(day, 1);
+    }
+    return out;
   }
   function reminderLabel(min) {
     if (min == null) return '';
@@ -1540,12 +1568,13 @@
   function eventReminderEntries() {
     const out = [];
     events.forEach(ev => {
-      const at = eventReminderAt(ev);
-      if (!at) return;
-      out.push({
-        date: at.date, time: at.time, tag: 'event-' + ev.id,   // one-time (has date)
-        title: 'Upcoming event',
-        body: '📅 ' + ev.title + (ev.time ? ' · ' + formatTime(ev.time) : '') + (ev.note ? ' — ' + ev.note : ''),
+      if (ev.reminderMin == null) return;
+      const body = '📅 ' + ev.title + (ev.time ? ' · ' + formatTime(ev.time) : '') + (ev.note ? ' — ' + ev.note : '');
+      // schedule the next few occurrences (one per date) so recurring events keep reminding
+      upcomingOccurrences(ev, 12).forEach(occ => {
+        const at = occurrenceReminder(ev, occ);
+        if (!at) return;
+        out.push({ date: at.date, time: at.time, tag: 'event-' + ev.id + '-' + occ, title: 'Upcoming event', body });
       });
     });
     return out;
